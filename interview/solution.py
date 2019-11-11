@@ -1,22 +1,22 @@
-import operator
+from abc import ABC
 from dataclasses import dataclass
 from datetime import date
-from typing import Callable, Optional
 from typing import Dict, List
+from typing import Optional, Iterable, Tuple
 
-import sqlite3
 import pandas as pd
+import sqlite3
 from sqlalchemy import *
 
 engine = create_engine('sqlite+pysqlite:///data/interview.db', module=sqlite3)
 
 
-class Equation(object):
+class Equation(ABC):
     """Supertype of all equation objects."""
     pass
 
 
-@dataclass
+@dataclass(frozen=True)
 class Market(Equation):
     """Describes how to query a market item for stocks at time `t`."""
     item: str  # one of 'close' or 'shares'
@@ -25,7 +25,7 @@ class Market(Equation):
     agg: Optional[str] = None  # the aggregation (by stock) to apply if periods > 1 (None, 'min' or 'max')
 
 
-@dataclass
+@dataclass(frozen=True)
 class Fundamental(Equation):
     """Describes how to query a fundamental item for stocks at time `t`."""
     item: str
@@ -33,7 +33,7 @@ class Fundamental(Equation):
     agg: Optional[str] = None  # the aggregation (by stock) to apply if quarters > 1 (None or 'sum')
 
 
-@dataclass
+@dataclass(frozen=True)
 class Ref(Equation):
     """References another equation."""
     name: str  # Equation name
@@ -42,20 +42,20 @@ class Ref(Equation):
 @dataclass
 class Op(Equation):
     """Applies a binary function to the results of the operands."""
-    fn: Callable
+    operator: str  # One of '+' , '-', '*' or '/'
     lhs: Equation
     rhs: Equation
 
 
 equations = {
-    'marketcap': Op(operator.mul, Market('close'), Market('shares')),
+    'marketcap': Op('*', Market('close'), Market('shares')),
     'earnings': Fundamental('net_income', quarters=4, agg='sum'),
-    'e2p': Op(operator.truediv, Ref('earnings'), Ref('marketcap')),
-    'range_52w': Op(operator.truediv,
-                    Op(operator.sub,
+    'e2p': Op('/', Ref('earnings'), Ref('marketcap')),
+    'range_52w': Op('/',
+                    Op('-',
                        Market('close'),
                        Market('close', freq='weeks', periods=52, agg='min')),
-                    Op(operator.sub,
+                    Op('-',
                        Market('close', freq='weeks', periods=52, agg='max'),
                        Market('close', freq='weeks', periods=52, agg='min'))
                     )
@@ -82,15 +82,17 @@ def months(end: date, num: int) -> List[date]:
     return list(d.date() for d in pd.date_range(end=end, periods=num, freq=freq))
 
 
-def calculate_t(name: str, universe: str, t: date, equations: Dict[str, Equation]):
+def calculate_t(equation_name: str, universe_name: str, t: date, equations: Dict[str, Equation]) \
+        -> Iterable[Tuple[str, float]]:
     """
-    Calculates the equation `name` that appears in the supplied `equations` dictionary for the `universe` at time `t`.
+    Calculates the equation named `equation_name` that appears in the supplied `equations` dictionary for the
+    universe named `universe_name` at date `t`.
 
     :name maps to an equation in `equations`
     :universe the name of a universe in the universe table
     :t an end-of-quarter date (for example, date(2019, 3, 31))
     :equations complete dictionary of equations, where any Ref refers to a name in the dictionary
-    :returns a vector of values, one for each of the names in the `universe` at time `t`
+    :returns an Iterable of values, one for each primary_id in the universe at date `t`
     """
     pass
 
